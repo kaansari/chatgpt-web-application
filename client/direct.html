@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>ChatGPT Front-end</title>
+    <link rel="stylesheet" href="./assets/css/highlight.min.css">
+    <link rel="stylesheet" href="./assets/css/index.css">
+    <link rel="icon" href="favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description"
+          content="Experience OpenAI API with this simple web application"
+    />
+</head>
+<body>
+    <div>
+        <input id="promptInput" type="text" placeholder="Enter your prompt">
+        <button id="submitPrompt">Submit</button>
+        <pre id="output"></pre>
+    </div>
+    <script>
+
+const assistantId = "asst_EiFzLsXf7wHQGh20yZvqbHSx";
+const apiKey = "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";  // Ensure this is secured if using server as a proxy.
+
+async function initiateRunAndPollStatus(prompt, userId) {
+    try {
+        let threadId = localStorage.getItem(`thread_${userId}`);
+
+        // Step 1: Create a thread if it doesn't exist
+        if (!threadId) {
+            const threadResponse = await fetch("https://api.openai.com/v1/threads", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${apiKey}`,
+                    "OpenAI-Beta": "assistants=v2"
+                },
+                body: JSON.stringify({
+                    messages: [{ role: 'user', content: [{ type: "text", text: prompt }] }]
+                })
+            });
+            const threadData = await threadResponse.json();
+            threadId = threadData.id;
+            localStorage.setItem(`thread_${userId}`, threadId);
+        }
+
+        // Step 2: Add the user's prompt as a message
+        await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`,
+                "OpenAI-Beta": "assistants=v2"
+            },
+            body: JSON.stringify({
+                role: "user",
+                content: [{ type: "text", text: prompt }]
+            })
+        });
+
+        // Step 3: Initiate a run and poll for status
+        const runResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`,
+                "OpenAI-Beta": "assistants=v2"
+            },
+            body: JSON.stringify({
+                assistant_id: assistantId,
+                additional_instructions: null,
+                tool_choice: null
+            })
+        });
+        const runData = await runResponse.json();
+        const runId = runData.id;
+
+        // Polling loop to check the run status
+        const pollInterval = 2000;  // 2 seconds
+        let isComplete = false;
+        while (!isComplete) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));  // Wait for the next poll
+
+            const statusResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${apiKey}`,
+                    "OpenAI-Beta": "assistants=v2"
+                }
+            });
+
+            const statusData = await statusResponse.json();
+            if (statusData.status === "completed") {
+                isComplete = true;
+
+                // Step 4: Retrieve messages from the completed run
+                const messagesResponse = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${apiKey}`,
+                        "OpenAI-Beta": "assistants=v2"
+                    }
+                });
+
+                const messagesData = await messagesResponse.json();
+                console.log("Messages:", messagesData);  // Display the conversation messages
+                document.getElementById("output").textContent = JSON.stringify(messagesData, null, 2);
+            }
+        }
+    } catch (error) {
+        console.error("Error:", error);
+        document.getElementById("output").textContent = `Error: ${error.message}`;
+    }
+}
+
+// Event listener for button click
+document.getElementById("submitPrompt").addEventListener("click", () => {
+    const prompt = document.getElementById("promptInput").value;
+    const userId = "user123";  // Replace with dynamic user ID if needed
+    initiateRunAndPollStatus(prompt, userId);
+});
+
+    </script>
+</body>
+</html>
