@@ -1,4 +1,4 @@
-const API_URL = '/';
+const API_URL = 'http://localhost:3000/';
 const converter = new showdown.Converter();
 let promptToRetry = null;
 let uniqueIdToRetry = null;
@@ -6,20 +6,17 @@ let uniqueIdToRetry = null;
 const submitButton = document.getElementById('submit-button');
 const regenerateResponseButton = document.getElementById('regenerate-response-button');
 const promptInput = document.getElementById('prompt-input');
-const userId = document.getElementById('userId').innerHTML;
 
 const responseList = document.getElementById('response-list');
 const fileInput = document.getElementById("whisper-file");
 
-
-
 let isGeneratingResponse = false;
-
 let loadInterval = null;
 
+// Retrieve threadId from localStorage or initialize as null
+let threadId = localStorage.getItem('threadId') || null;
 
-
-promptInput.addEventListener('keydown', function(event) {
+promptInput.addEventListener('keydown', function (event) {
     if (event.key === 'Enter') {
         event.preventDefault();
         if (event.ctrlKey || event.shiftKey) {
@@ -38,7 +35,6 @@ function generateUniqueId() {
     return `id-${timestamp}-${hexadecimalString}`;
 }
 
-
 function addResponse(selfFlag, prompt) {
     const uniqueId = generateUniqueId();
     const html = `
@@ -46,17 +42,14 @@ function addResponse(selfFlag, prompt) {
                 <img class="avatar-image" src="assets/img/${selfFlag ? 'me' : 'chatgpt'}.png" alt="avatar"/>
                 <div class="prompt-content" id="${uniqueId}">${prompt}</div>
             </div>
-        `
+        `;
     responseList.insertAdjacentHTML('beforeend', html);
     responseList.scrollTop = responseList.scrollHeight;
     return uniqueId;
 }
 
-
-
-
 function loader(element) {
-    element.textContent = ''
+    element.textContent = '';
 
     loadInterval = setInterval(() => {
         // Update the text content of the loading indicator
@@ -82,7 +75,7 @@ function setRetryResponse(prompt, uniqueId) {
 
 async function regenerateGPTResult() {
     try {
-        await getGPTResult(promptToRetry, uniqueIdToRetry)
+        await getGPTResult(promptToRetry, uniqueIdToRetry);
         regenerateResponseButton.classList.add("loading");
     } finally {
         regenerateResponseButton.classList.remove("loading");
@@ -111,7 +104,7 @@ async function getWhisperResult() {
             return;
         }
         const responseText = await response.text();
-        responseElement.innerHTML = `<div>${responseText}</div>`
+        responseElement.innerHTML = `<div>${responseText}</div>`;
     } catch (e) {
         console.log(e);
         setErrorForResponse(responseElement, `Error: ${e.message}`);
@@ -121,7 +114,6 @@ async function getWhisperResult() {
         clearInterval(loadInterval);
     }
 }
-
 
 // Function to get GPT result with streaming updates
 async function getGPTResult(_promptToRetry, _uniqueIdToRetry) {
@@ -147,11 +139,18 @@ async function getGPTResult(_promptToRetry, _uniqueIdToRetry) {
         const response = await fetch("/get-prompt-result", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, userId: "uniqueUserId" }),
+            body: JSON.stringify({ prompt, threadId }), // Send threadId with the prompt
         });
 
         if (!response.ok) {
             throw new Error(`HTTP Error: ${await response.text()}`);
+        }
+
+        // Save the threadId from the response headers
+        const responseThreadId = response.headers.get('Thread-ID');
+        if (responseThreadId && responseThreadId !== threadId) {
+            threadId = responseThreadId;
+            localStorage.setItem('threadId', threadId); // Save threadId to localStorage
         }
 
         // Stream response and update UI incrementally
@@ -181,105 +180,18 @@ async function getGPTResult(_promptToRetry, _uniqueIdToRetry) {
         clearInterval(loadInterval);
     }
 }
-// Function to get GPT chat client result
-async function getGPTResult_Old(_promptToRetry, _uniqueIdToRetry) {
-    if (modelSelect.value === 'whisper') {
-        await getWhisperResult();
-        return;
-    }
-    // Get the prompt input
-    const prompt = _promptToRetry ?? promptInput.textContent;
-
-    // If a response is already being generated or the prompt is empty, return
-    if (isGeneratingResponse || !prompt) {
-        return;
-    }
-
-    // Add loading class to the submit button
-    submitButton.classList.add("loading");
-
-    // Clear the prompt input
-    promptInput.textContent = '';
-
-    if (!_uniqueIdToRetry) {
-        // Add the prompt to the response list
-        addResponse(true, `<div>${prompt}</div>`);
-    }
-
-    // Get a unique ID for the response element
-    const uniqueId = _uniqueIdToRetry ?? addResponse(false);
-
-    // Get the response element
-    const responseElement = document.getElementById(uniqueId);
-
-    // Show the loader
-    loader(responseElement);
-
-    // Set isGeneratingResponse to true
-    isGeneratingResponse = true;
-
-    try {
-        const model = modelSelect.value;
-        // Send a POST request to the API with the prompt in the request body
-        const response = await fetch(API_URL + 'get-prompt-result', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt,
-                userId,
-                model
-            })
-        });
-        if (!response.ok) {
-            setRetryResponse(prompt, uniqueId);
-            setErrorForResponse(responseElement, `HTTP Error: ${await response.text()}`);
-            return;
-        }
-        const responseText = await response.text();
-        if (model === 'image') {
-            // Show image for `Create image` model
-            responseElement.innerHTML = `<img src="${responseText}" class="ai-image" alt="generated image"/>`
-        } else {
-            // Set the response text
-            responseElement.innerHTML = converter.makeHtml(responseText.trim());
-        }
-
-        promptToRetry = null;
-        uniqueIdToRetry = null;
-        regenerateResponseButton.style.display = 'none';
-        setTimeout(() => {
-            // Scroll to the bottom of the response list
-            responseList.scrollTop = responseList.scrollHeight;
-            hljs.highlightAll();
-        }, 10);
-    } catch (err) {
-        setRetryResponse(prompt, uniqueId);
-        // If there's an error, show it in the response element
-        setErrorForResponse(responseElement, `Error: ${err.message}`);
-    } finally {
-        // Set isGeneratingResponse to false
-        isGeneratingResponse = false;
-
-        // Remove the loading class from the submit button
-        submitButton.classList.remove("loading");
-
-        // Clear the loader interval
-        clearInterval(loadInterval);
-    }
-}
-
 
 submitButton.addEventListener("click", () => {
     getGPTResult();
 });
+
 regenerateResponseButton.addEventListener("click", () => {
     regenerateGPTResult();
 });
 
-document.addEventListener("DOMContentLoaded", function(){
+document.addEventListener("DOMContentLoaded", function () {
     promptInput.focus();
 });
-
 
 function formatMessage(message) {
     // Convert phone numbers to clickable links
@@ -289,7 +201,7 @@ function formatMessage(message) {
     // Convert URLs to clickable links
     const urlRegex = /(https?:\/\/[^\s]+)/g; // For absolute URLs
     message = message.replace(urlRegex, (url) => `<a href="${url}" target="_blank" style="color: #10A37F;">${url}</a>`);
-    
+
     const markdownUrlRegex = /\[([^\]]+)\]\((https?:\/\/[^\s]+)\)/g; // For markdown-style links
     message = message.replace(markdownUrlRegex, (match, text, url) => `<a href="${url}" target="_blank" style="color: #10A37F;">${text}</a>`);
 
